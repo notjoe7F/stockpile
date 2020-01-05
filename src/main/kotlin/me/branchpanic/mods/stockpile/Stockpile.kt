@@ -2,10 +2,8 @@ package me.branchpanic.mods.stockpile
 
 import me.branchpanic.mods.stockpile.api.upgrade.UpgradeRegistry
 import me.branchpanic.mods.stockpile.api.upgrade.UpgradeType
-import me.branchpanic.mods.stockpile.content.block.AttackableBlockCallback
-import me.branchpanic.mods.stockpile.content.block.BarrelBlock
-import me.branchpanic.mods.stockpile.content.block.ItemBarrelBlock
-import me.branchpanic.mods.stockpile.content.block.TrashCanBlock
+import me.branchpanic.mods.stockpile.content.block.*
+import me.branchpanic.mods.stockpile.content.blockentity.BarrelControllerBlockEntity
 import me.branchpanic.mods.stockpile.content.blockentity.ItemBarrelBlockEntity
 import me.branchpanic.mods.stockpile.content.blockentity.TrashCanBlockEntity
 import me.branchpanic.mods.stockpile.content.item.BarrelHatItem
@@ -36,7 +34,8 @@ object Stockpile : ModInitializer {
 
     internal val BLOCKS: Map<Identifier, Block> = mapOf(
         id("item_barrel") to BarrelBlock.ITEM,
-        id("trash_can") to TrashCanBlock
+        id("trash_can") to TrashCanBlock,
+        id("barrel_controller") to BarrelControllerBlock
     )
 
     internal val ITEM_SETTINGS = Item.Settings().group(ITEM_GROUP)
@@ -52,7 +51,8 @@ object Stockpile : ModInitializer {
 
     internal val BLOCK_ENTITIES: Map<Identifier, BlockEntityType<out BlockEntity>> = mapOf(
         id("item_barrel") to ItemBarrelBlockEntity.TYPE,
-        id("trash_can") to TrashCanBlockEntity.TYPE
+        id("trash_can") to TrashCanBlockEntity.TYPE,
+        id("barrel_controller") to BarrelControllerBlockEntity.TYPE
     )
 
     internal val UPGRADES: Map<Identifier, UpgradeType> = mapOf(

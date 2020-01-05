@@ -7,6 +7,7 @@ import me.branchpanic.mods.stockpile.api.upgrade.UpgradeContainer
 import me.branchpanic.mods.stockpile.api.upgrade.UpgradeRegistry
 import me.branchpanic.mods.stockpile.api.upgrade.barrel.ItemBarrelUpgrade
 import me.branchpanic.mods.stockpile.content.block.ItemBarrelBlock
+import me.branchpanic.mods.stockpile.content.block.neighbors
 import me.branchpanic.mods.stockpile.content.upgrade.TrashUpgrade
 import me.branchpanic.mods.stockpile.extension.giveTo
 import me.branchpanic.mods.stockpile.extension.withCount
@@ -24,19 +25,52 @@ import net.minecraft.nbt.ListTag
 import net.minecraft.sound.SoundCategory
 import net.minecraft.sound.SoundEvents
 import net.minecraft.util.Hand
+import net.minecraft.util.math.BlockPos
 import java.util.function.Supplier
 import kotlin.math.max
 import kotlin.math.min
 
 class ItemBarrelBlockEntity(
     override var appliedUpgrades: List<Upgrade> = emptyList(),
-    override var maxUpgrades: Int = DEFAULT_MAX_UPGRADES
+    override var maxUpgrades: Int = DEFAULT_MAX_UPGRADES,
+    public var parentPos: BlockPos? = null,
+    public var referrerPos: BlockPos? = null
 ) : AbstractBarrelBlockEntity<ItemStack>(
     storage = MassItemStackStorage(ItemStackQuantifier.NONE, DEFAULT_CAPACITY_STACKS),
     clearWhenEmpty = true,
     doubleClickThresholdMs = 1000,
     type = TYPE
 ), BlockEntityClientSerializable, Inventory, UpgradeContainer {
+    companion object {
+        const val DEFAULT_CAPACITY_STACKS = 32
+        const val DEFAULT_MAX_UPGRADES = 6
+
+        const val STORED_ITEM_TAG = "StoredItem"
+        const val AMOUNT_STORED_TAG = "AmountStored"
+        const val CLEAR_WHEN_EMPTY_TAG = "ClearWhenEmpty"
+        const val UPGRADE_TAG = "Upgrades"
+        const val MAX_UPGRADES_TAG = "MaxUpgrades"
+        const val PARENT_POS_TAG = "ParentPosition"
+        const val REFERRER_POS_TAG = "ReferrerPosition"
+
+        const val STORED_BLOCK_ENTITY_TAG = "StoredBlockEntity"
+
+        val TYPE: BlockEntityType<ItemBarrelBlockEntity> =
+            BlockEntityType.Builder.create(Supplier { ItemBarrelBlockEntity() }, ItemBarrelBlock).build(null)
+
+        fun fromStack(stack: ItemStack): ItemBarrelBlockEntity {
+            val barrel = ItemBarrelBlockEntity()
+            barrel.fromClientTag(stack.getOrCreateSubTag(STORED_BLOCK_ENTITY_TAG))
+            return barrel
+        }
+    }
+
+    val localStorage = FixedMassItemInv(storage, false)
+    private val invWrapper = UnrestrictedInventoryFixedWrapper(localStorage)
+
+    init {
+        localStorage.addListener({ markDirty() }, { })
+    }
 
     override fun isUpgradeTypeAllowed(u: Upgrade): Boolean = u is ItemBarrelUpgrade
 
@@ -52,35 +86,6 @@ class ItemBarrelBlockEntity(
         return result
     }
 
-    companion object {
-        const val DEFAULT_CAPACITY_STACKS = 32
-        const val DEFAULT_MAX_UPGRADES = 6
-
-        const val STORED_ITEM_TAG = "StoredItem"
-        const val AMOUNT_STORED_TAG = "AmountStored"
-        const val CLEAR_WHEN_EMPTY_TAG = "ClearWhenEmpty"
-        const val UPGRADE_TAG = "Upgrades"
-        const val MAX_UPGRADES_TAG = "MaxUpgrades"
-
-        const val STORED_BLOCK_ENTITY_TAG = "StoredBlockEntity"
-
-        val TYPE: BlockEntityType<ItemBarrelBlockEntity> =
-            BlockEntityType.Builder.create(Supplier { ItemBarrelBlockEntity() }, ItemBarrelBlock).build(null)
-
-        fun fromStack(stack: ItemStack): ItemBarrelBlockEntity {
-            val barrel = ItemBarrelBlockEntity()
-            barrel.fromClientTag(stack.getOrCreateSubTag(STORED_BLOCK_ENTITY_TAG))
-            return barrel
-        }
-    }
-
-    val invAttribute = FixedMassItemInv(storage, false)
-    private val invWrapper = UnrestrictedInventoryFixedWrapper(invAttribute)
-
-    init {
-        invAttribute.addListener({ markDirty() }, { })
-    }
-
     override fun markDirty() {
         if (clearWhenEmpty && storage.isEmpty) {
             storage.contents = ItemStackQuantifier.NONE
@@ -94,16 +99,16 @@ class ItemBarrelBlockEntity(
         }
     }
 
-    // TODO: Delegate to observable?
     private fun handleUpgradeChanges() {
-        invAttribute.voidExtraItems = appliedUpgrades.filterIsInstance<TrashUpgrade>().any()
+        localStorage.voidExtraItems = appliedUpgrades.filterIsInstance<TrashUpgrade>().any()
 
-        // TODO: Lame
         (storage as MassItemStackStorage).maxStacks = appliedUpgrades.filterIsInstance<ItemBarrelUpgrade>()
             .fold(DEFAULT_CAPACITY_STACKS) { acc, upgrade -> upgrade.upgradeMaxStacks(acc) }
     }
 
     override fun giveToPlayer(player: PlayerEntity, amount: BarrelTransactionAmount) {
+        println("parent $parentPos, referred by $referrerPos")
+
         val removedItems = when (amount) {
             BarrelTransactionAmount.ONE -> storage.contents.withAmount(1)
             BarrelTransactionAmount.MANY -> storage.contents.reference.oneStackToQuantizer()
@@ -153,6 +158,9 @@ class ItemBarrelBlockEntity(
         putLong(AMOUNT_STORED_TAG, storage.contents.amount)
         putBoolean(CLEAR_WHEN_EMPTY_TAG, clearWhenEmpty)
         put(UPGRADE_TAG, appliedUpgrades.mapNotNull { u -> UpgradeRegistry.writeUpgrade(u) }.toCollection(ListTag()))
+
+        putLong(PARENT_POS_TAG, parentPos?.asLong() ?: 0L)
+        putLong(REFERRER_POS_TAG, parentPos?.asLong() ?: 0L)
     }
 
     override fun fromClientTag(tag: CompoundTag?) = requireNotNull(tag).run {
@@ -179,6 +187,13 @@ class ItemBarrelBlockEntity(
             val itemAmount = min(max(0L, getLong(AMOUNT_STORED_TAG)), storage.capacity)
             storage.contents = ItemStackQuantifier(item.withCount(1), itemAmount)
         }
+
+        // Connections
+        val parentPosL = getLong(PARENT_POS_TAG)
+        val referrerPosL = getLong(REFERRER_POS_TAG)
+
+        parentPos = if (parentPosL != 0L) BlockPos.fromLong(parentPosL) else null
+        referrerPos = if (referrerPosL != 0L) BlockPos.fromLong(referrerPosL) else null
     }
 
     // Delegation of Inventory to invAttribute. As far as I know we can't use Kotlin's implementation by delegation
@@ -201,4 +216,64 @@ class ItemBarrelBlockEntity(
     override fun isInvEmpty(): Boolean = invWrapper.isInvEmpty
 
     override fun isValidInvStack(slot: Int, stack: ItemStack?): Boolean = invWrapper.isValidInvStack(slot, stack)
+
+    // Parenting
+    public fun updateAndPropagateParents(seen: MutableSet<BlockPos> = mutableSetOf()) {
+        if (world == null) return
+
+        updateParents()
+        seen += pos
+
+        pos.neighbors.mapNotNull { p ->
+            world?.getBlockEntity(p) as? ItemBarrelBlockEntity
+        }.forEach { b ->
+            if (b.parentPos == null && b.pos !in seen) {
+                seen += b.pos
+                b.updateAndPropagateParents(seen)
+            }
+        }
+    }
+
+    public fun updateParents() {
+        if (world == null) return
+
+        parent?.removeChild(pos)
+
+        val neighboringControllers = pos.neighbors.mapNotNull { p ->
+            world?.getBlockEntity(p) as? BarrelControllerBlockEntity
+        }
+
+        val neighboringBarrels = pos.neighbors.mapNotNull { p ->
+            world?.getBlockEntity(p) as? ItemBarrelBlockEntity
+        }.filter { b -> b.parentPos != null }
+
+        val allParents =
+            neighboringControllers.mapNotNull { c -> c.pos } +
+                    neighboringBarrels.mapNotNull { b -> b.parentPos }
+
+        if (allParents.distinct().size > 1) {
+            world?.breakBlock(pos, true)
+            return
+        }
+
+        if (neighboringControllers.size == 1) {
+            val controller = neighboringControllers.first()
+            parentPos = controller.pos
+            referrerPos = parentPos
+
+        } else {
+            if (neighboringBarrels.isEmpty()) {
+                return
+            }
+
+            val referrer = neighboringBarrels.first()
+            parentPos = referrer.parentPos
+            referrerPos = referrer.pos
+        }
+
+        parent?.addChild(pos)
+    }
+
+    val parent: BarrelControllerBlockEntity?
+        get() = if (parentPos == null) null else world?.getBlockEntity(parentPos) as? BarrelControllerBlockEntity
 }
