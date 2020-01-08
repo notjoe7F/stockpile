@@ -107,8 +107,6 @@ class ItemBarrelBlockEntity(
     }
 
     override fun giveToPlayer(player: PlayerEntity, amount: BarrelTransactionAmount) {
-        println("parent $parentPos, referred by $referrerPos")
-
         val removedItems = when (amount) {
             BarrelTransactionAmount.ONE -> storage.contents.withAmount(1)
             BarrelTransactionAmount.MANY -> storage.contents.reference.oneStackToQuantizer()
