@@ -176,7 +176,9 @@ class ItemBarrelBlockEntity(
         if (item.isEmpty) {
             storage.contents = ItemStackQuantifier.NONE
         } else {
-            val itemAmount = min(max(0L, getLong(AMOUNT_STORED_TAG)), storage.capacity)
+            val itemAmount = min(
+                max(0L, getLong(AMOUNT_STORED_TAG)),
+                (item.maxCount * (storage as MassItemStackStorage).maxStacks).toLong())
             storage.contents = ItemStackQuantifier(item.withCount(1), itemAmount)
         }
     }
